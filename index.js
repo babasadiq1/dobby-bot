@@ -1,97 +1,74 @@
-// index.js
-// Discord bot using Fireworks Dobby 8B (via Fireworks API)
+import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from "discord.js";
+import "dotenv/config";
+import fetch from "node-fetch";
 
-import 'dotenv/config';
-import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
-import fetch from 'node-fetch';
-
-// Load environment variables
+// --- Load environment variables ---
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
 const FIREWORKS_API_KEY = process.env.FIREWORKS_API_KEY;
-const FIREWORKS_MODEL_ID = process.env.FIREWORKS_MODEL_ID;
 
-if (!DISCORD_TOKEN || !FIREWORKS_API_KEY || !FIREWORKS_MODEL_ID) {
-  console.error('❌ Missing environment variables! Check your .env file.');
-  process.exit(1);
-}
+// --- Initialize Discord client ---
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
+});
 
-// Create Discord client
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// --- When bot is ready ---
+client.once("ready", async () => {
+  console.log(`🤖 Logged in as ${client.user.tag}`);
 
-// Register /ask command
-async function registerCommands() {
-  const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
-  const cmd = new SlashCommandBuilder()
-    .setName('ask')
-    .setDescription('Ask Dobby anything!')
-    .addStringOption(opt =>
-      opt.setName('prompt')
-        .setDescription('Your question or prompt')
+  // Register slash command
+  const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
+  const command = new SlashCommandBuilder()
+    .setName("ask")
+    .setDescription("Ask the Sentient Dobby 8B model a question.")
+    .addStringOption(option =>
+      option.setName("question")
+        .setDescription("Your question to Dobby")
         .setRequired(true)
     );
 
   try {
-    const app = await client.application?.fetch();
-    const clientId = app?.id;
-    if (!clientId) throw new Error('Could not get client ID');
-
-    await rest.put(Routes.applicationCommands(clientId), { body: [cmd.toJSON()] });
-    console.log('✅ Slash command /ask registered successfully.');
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [command.toJSON()] });
+    console.log("✅ Slash command /ask registered successfully.");
   } catch (err) {
-    console.error('❌ Failed to register slash commands:', err);
+    console.error("❌ Failed to register commands:", err);
   }
-}
-
-client.once('ready', async () => {
-  console.log(`🤖 Logged in as ${client.user.tag}`);
-  await registerCommands();
 });
 
-// Handle /ask command
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isCommand()) return;
-  if (interaction.commandName === 'ask') {
-    const prompt = interaction.options.getString('prompt', true);
-    await interaction.deferReply();
+// --- Handle interaction (/ask) ---
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand() || interaction.commandName !== "ask") return;
 
-    try {
-      // Build Fireworks request
-      const body = {
-        model: FIREWORKS_MODEL_ID,
-        messages: [
-          { role: 'system', content: 'You are Dobby, a helpful assistant created by Sentient.' },
-          { role: 'user', content: prompt }
-        ],
-        max_tokens: 512
-      };
+  const question = interaction.options.getString("question");
+  await interaction.deferReply(); // Prevents "Unknown interaction" error
 
-      // Send request to Fireworks
-      const res = await fetch('https://api.fireworks.ai/inference/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${FIREWORKS_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-      });
+  try {
+    const response = await fetch("https://api.fireworks.ai/inference/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${FIREWORKS_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "accounts/sentientfoundation-serverless/models/dobby-mini-unhinged-plus-llama-3-1-8b",
+        messages: [{ role: "user", content: question }],
+        max_tokens: 500
+      })
+    });
 
-      if (!res.ok) {
-        const text = await res.text();
-        console.error('🔥 Fireworks error:', res.status, text);
-        await interaction.editReply('⚠️ Model request failed. Please try again later.');
-        return;
-      }
+    const data = await response.json();
 
-      const data = await res.json();
-      const reply = data.choices?.[0]?.message?.content || '⚠️ No response from model.';
-      const safeReply = reply.length > 1900 ? reply.slice(0, 1900) + '…' : reply;
-
-      await interaction.editReply(safeReply);
-    } catch (err) {
-      console.error('⚠️ Error calling Fireworks:', err);
-      await interaction.editReply('⚠️ Something went wrong while contacting Dobby.');
+    if (data?.choices?.[0]?.message?.content) {
+      await interaction.editReply(data.choices[0].message.content);
+    } else {
+      await interaction.editReply("⚠️ Sorry, I didn’t get a proper response from the model.");
+      console.error("Unexpected API response:", data);
     }
+  } catch (error) {
+    console.error("🔥 Error communicating with Fireworks API:", error);
+    await interaction.editReply("❌ Something went wrong while fetching the response.");
   }
 });
 
+// --- Login to Discord ---
 client.login(DISCORD_TOKEN);
