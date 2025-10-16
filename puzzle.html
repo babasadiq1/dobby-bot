@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sentient Arts - Card Flip Game</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: #111;
+      color: white;
+    }
+    .game-board {
+      display: grid;
+      grid-template-columns: repeat(4, 100px);
+      grid-gap: 10px;
+    }
+    .card {
+      width: 100px;
+      height: 100px;
+      background: #444;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 30px;
+      cursor: pointer;
+      border-radius: 8px;
+      transform: scale(1);
+      transition: transform 0.3s;
+    }
+    .card img {
+      width: 100%;
+      height: 100%;
+      display: none;
+      border-radius: 8px;
+    }
+    .card.flipped img {
+      display: block;
+    }
+    .card.flipped {
+      background: #fff;
+      transform: rotateY(180deg);
+    }
+  </style>
+</head>
+<body>
+  <div>
+    <h2>🃏 Sentient Arts - Memory Flip</h2>
+    <div class="game-board" id="gameBoard"></div>
+  </div>
+
+  <script>
+    const arts = [
+      "https://pbs.twimg.com/media/G2Qh7naWIAAa5XS.jpg:large", // replace with Sentient art image links
+      "https://pbs.twimg.com/media/G2RcutVWQAApCkg.jpg:large",
+      "https://pbs.twimg.com/media/G2RW7XJXoAA8bdF.jpg:large",
+      "https://pbs.twimg.com/media/G13oQcEX0AA7jvp.jpg:large"
+    ];
+
+    let cards = [...arts, ...arts]; // duplicate for pairs
+    cards.sort(() => 0.5 - Math.random()); // shuffle
+
+    const gameBoard = document.getElementById("gameBoard");
+    let flipped = [];
+    let matched = [];
+
+    cards.forEach((src, i) => {
+      const card = document.createElement("div");
+      card.classList.add("card");
+      card.dataset.index = i;
+
+      const img = document.createElement("img");
+      img.src = src;
+      card.appendChild(img);
+
+      card.addEventListener("click", () => flipCard(card, src));
+      gameBoard.appendChild(card);
+    });
+
+    function flipCard(card, src) {
+      if (flipped.length < 2 && !card.classList.contains("flipped")) {
+        card.classList.add("flipped");
+        flipped.push({ card, src });
+
+        if (flipped.length === 2) {
+          setTimeout(checkMatch, 500);
+        }
+      }
+    }
+
+    function checkMatch() {
+      const [first, second] = flipped;
+      if (first.src === second.src) {
+        matched.push(first.src);
+      } else {
+        first.card.classList.remove("flipped");
+        second.card.classList.remove("flipped");
+      }
+      flipped = [];
+
+      if (matched.length === arts.length) {
+        alert("🎉 You matched all Sentient Arts!");
+      }
+    }
+  </script>
+</body>
+</html>

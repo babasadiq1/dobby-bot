@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sentient Collector — Click to Score</title>
+  <style>
+    :root{
+      --bg:#041022; --card:#0b2133; --accent:#00b4d8; --glass:rgba(255,255,255,0.03);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family:Inter,system-ui,Arial; background:linear-gradient(180deg,#041022,#08202b); color:#e6eef6;
+      min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+    }
+    .wrap{width:980px; max-width:100%; background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:12px; padding:18px; box-shadow:0 12px 30px rgba(2,6,23,0.6)}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+    h1{font-size:20px;margin:0}
+    .controls{display:flex;gap:12px;align-items:center}
+    button{background:var(--card);border:1px solid rgba(255,255,255,0.04);color:inherit;padding:8px 12px;border-radius:8px;cursor:pointer}
+    .hud{display:flex;gap:12px;align-items:center;font-weight:700}
+    .hud .item{background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:8px}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px; padding:12px; background:var(--glass); border-radius:10px}
+    .cell{position:relative;padding-top:100%; border-radius:8px; overflow:hidden; background:#06111a; box-shadow: inset 0 1px 0 rgba(255,255,255,0.02); cursor:pointer; transition:transform 0.12s}
+    .cell img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; transform:scale(0.95); opacity:0; transition: transform 0.18s, opacity 0.18s}
+    .cell.active img{opacity:1; transform:scale(1)}
+    .footer{margin-top:12px;padding-top:12px;border-top:1px dashed rgba(255,255,255,0.02);text-align:center;font-size:13px;color:rgba(230,238,246,0.7)}
+    /* overlay */
+    .overlay{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); visibility:hidden; opacity:0; transition:opacity .18s; z-index:50}
+    .overlay.show{visibility:visible; opacity:1}
+    .modal{background:#071426;padding:20px;border-radius:10px; text-align:center; width:320px; color:#eaf6ff}
+    .modal h2{margin:0 0 10px}
+    .modal p{margin:8px 0}
+    @media(max-width:640px){ .grid{grid-template-columns:repeat(2,1fr)} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Sentient Collector</h1>
+        <div style="font-size:13px;color:rgba(230,238,246,0.8)">Click the Sentient art tiles as they appear. Collect points before time runs out!</div>
+      </div>
+
+      <div class="controls">
+        <div class="hud">
+          <div class="item">Score: <span id="score">0</span></div>
+          <div class="item">Best: <span id="bestScore">0</span></div>
+          <div class="item">Time: <span id="time">30</span>s</div>
+        </div>
+        <div style="display:flex;gap:8px;margin-left:8px">
+          <button id="startBtn">Start</button>
+          <button id="pauseBtn">Pause</button>
+          <button id="resetBtn">Reset</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="grid" id="grid" aria-live="polite" aria-label="Game grid"></div>
+    </main>
+
+    <div class="footer">
+      Built for the Sentient builder journey — Made by
+      <a href="https://x.com/web3sadiq" target="_blank" style="color:var(--accent);font-weight:700;text-decoration:none">web3sadiq</a>
+    </div>
+  </div>
+
+  <!-- Game Over Modal -->
+  <div id="overlay" class="overlay" role="dialog" aria-modal="true">
+    <div class="modal">
+      <h2>Time's up!</h2>
+      <p>Your score: <strong id="finalScore">0</strong></p>
+      <p>Best score: <strong id="finalBest">0</strong></p>
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
+        <button id="playAgain">Play Again</button>
+        <button id="closeModal">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /***** CONFIG: replace these with Sentient images (Discord links or local filenames) *****/
+    const arts = [
+      "https://pbs.twimg.com/media/G13oQcEX0AA7jvp.jpg:large",
+      "https://pbs.twimg.com/media/G2RW7XJXoAA8bdF.jpg:large",
+      "https://pbs.twimg.com/media/G2RcutVWQAApCkg.jpg:large",
+      "https://pbs.twimg.com/media/G2RW7XJXoAA8bdF.jpg:large"
+    ];
+    /***************************************************************************/
+
+    // Elements
+    const gridEl = document.getElementById('grid');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('bestScore');
+    const timeEl = document.getElementById('time');
+    const startBtn = document.getElementById('startBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const overlay = document.getElementById('overlay');
+    const finalScoreEl = document.getElementById('finalScore');
+    const finalBestEl = document.getElementById('finalBest');
+    const playAgainBtn = document.getElementById('playAgain');
+    const closeModalBtn = document.getElementById('closeModal');
+
+    // Game vars
+    const GRID_SIZE = 12;
+    let cells = [];
+    let activeIndex = -1;
+    let score = 0;
+    let bestScore = Number(localStorage.getItem('sentient_highscore')) || 0;
+    let gameTime = 30;
+    let timer = null;
+    let spawnInterval = null;
+    let running = false;
+
+    // Initialize UI
+    bestEl.textContent = bestScore;
+
+    function buildGrid(){
+      gridEl.innerHTML = '';
+      cells = [];
+      for(let i=0;i<GRID_SIZE;i++){
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.tabIndex = 0;
+        cell.dataset.idx = i;
+        const img = document.createElement('img');
+        img.src = arts[i % arts.length];
+        img.alt = 'Sentient art tile';
+        cell.appendChild(img);
+        cell.addEventListener('click', ()=> onCellClick(i));
+        cell.addEventListener('keydown', (e) => { if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onCellClick(i); } });
+        gridEl.appendChild(cell);
+        cells.push({el:cell, img});
+      }
+    }
+
+    function randomInt(max){ return Math.floor(Math.random()*max); }
+
+    function activateRandomCell(){
+      if(activeIndex !== -1){
+        cells[activeIndex].el.classList.remove('active');
+      }
+      const idx = randomInt(GRID_SIZE);
+      const art = arts[randomInt(arts.length)];
+      const cell = cells[idx];
+      cell.img.src = art;
+      cell.el.classList.add('active');
+      activeIndex = idx;
+      // small pop visual
+      cell.el.style.transform = 'scale(1.03)';
+      setTimeout(()=> cell.el.style.transform = 'scale(1)', 120);
+    }
+
+    function onCellClick(i){
+      if(!running) return;
+      if(i === activeIndex){
+        score += 10;
+        scoreEl.textContent = score;
+        cells[i].el.classList.remove('active');
+        activeIndex = -1;
+        // update bestScore if needed
+        if(score > bestScore){
+          bestScore = score;
+          localStorage.setItem('sentient_highscore', String(bestScore));
+          bestEl.textContent = bestScore;
+        }
+        // small bonus time
+        gameTime = Math.min(60, gameTime + 1);
+        timeEl.textContent = gameTime;
+      } else {
+        // small penalty
+        score = Math.max(0, score - 2);
+        scoreEl.textContent = score;
+      }
+    }
+
+    function startGame(){
+      if(running) return;
+      running = true;
+      startBtn.disabled = true;
+      pauseBtn.disabled = false;
+      resetBtn.disabled = false;
+      timer = setInterval(()=>{
+        gameTime--;
+        timeEl.textContent = gameTime;
+        if(gameTime <= 0){
+          endGame();
+        }
+      }, 1000);
+      spawnInterval = setInterval(activateRandomCell, 800);
+      activateRandomCell();
+    }
+
+    function pauseGame(){
+      if(!running) return;
+      running = false;
+      startBtn.disabled = false;
+      pauseBtn.disabled = true;
+      clearInterval(timer);
+      clearInterval(spawnInterval);
+    }
+
+    function resetGame(){
+      pauseGame();
+      score = 0; gameTime = 30; activeIndex = -1;
+      scoreEl.textContent = score;
+      timeEl.textContent = gameTime;
+      cells.forEach(c=> c.el.classList.remove('active'));
+      startBtn.disabled = false;
+      pauseBtn.disabled = true;
+    }
+
+    function endGame(){
+      pauseGame();
+      finalScoreEl.textContent = score;
+      finalBestEl.textContent = bestScore;
+      overlay.classList.add('show');
+    }
+
+    // Button wiring
+    startBtn.addEventListener('click', startGame);
+    pauseBtn.addEventListener('click', pauseGame);
+    resetBtn.addEventListener('click', resetGame);
+    playAgainBtn.addEventListener('click', () => {
+      overlay.classList.remove('show');
+      resetGame();
+      startGame();
+    });
+    closeModalBtn.addEventListener('click', () => overlay.classList.remove('show'));
+
+    // keyboard: space toggles start/pause
+    window.addEventListener('keydown', e => {
+      if(e.code === 'Space'){
+        e.preventDefault();
+        if(!running) startGame(); else pauseGame();
+      }
+    });
+
+    // init
+    buildGrid();
+    scoreEl.textContent = score;
+    timeEl.textContent = gameTime;
+    pauseBtn.disabled = true;
+  </script>
+</body>
+</html>
